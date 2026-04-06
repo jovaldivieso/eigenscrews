@@ -139,7 +139,7 @@ Eigen::Isometry3d twistExp(const Vector6d& xi, double theta)
   return T;
 }
 
-/* RigidTwist[g] extracts 6 vector xi from g */
+/* RigidTwist[g] extracts 6 vector xi from g (Logarithmic Map of SE(3)) */
 Vector6d rigidTwist(const Eigen::Isometry3d& g)
 {
   Eigen::Matrix3d R = g.linear();
@@ -147,33 +147,40 @@ Vector6d rigidTwist(const Eigen::Isometry3d& g)
 
   Eigen::AngleAxisd angleAxis(R);
   double theta = angleAxis.angle();
-  Eigen::Vector3d w = angleAxis.axis();
+  Eigen::Vector3d w_dir = angleAxis.axis();
+
+  Eigen::Vector3d w = w_dir * theta;  // The scaled axis (exponential coordinates of rotation)
   Eigen::Vector3d v;
 
-  if (std::abs(theta) < 1e-6)
+  if (std::abs(theta) < 1e-9)
   {
-    double mag = p.norm();
-    if (mag < 1e-9)
-      return Vector6d::Zero();
-
-    theta = mag;
+    // Extremely small rotation: treat as pure translation to avoid division by zero
     w = Eigen::Vector3d::Zero();
-    v = p;  // Pure translation
+    v = p;
   }
   else
   {
-    Eigen::Matrix3d S = skew(w);
-    Eigen::Matrix3d wwT = w * w.transpose();
+    Eigen::Matrix3d W = skew(w);
 
-    // Solve (I - e^[w]theta) * (w x v) + ... = p for v
-    Eigen::Matrix3d A = (Eigen::Matrix3d::Identity() - wwT) * std::sin(theta) +
-                        S * (1.0 - std::cos(theta)) + wwT * theta;
+    // Calculate the coefficient for W^2 in the inverse Left Jacobian of SO(3)
+    double alpha;
+    if (std::abs(theta) < 1e-4)
+    {
+      // Taylor series expansion for small angles to maintain smooth differentiability
+      // Limits the discontinuity when transitioning from small angles to 0
+      alpha = 1.0 / 12.0 + (theta * theta) / 720.0;
+    }
+    else
+    {
+      // Analytical closed-form coefficient
+      alpha = (1.0 / (theta * theta)) - (1.0 + std::cos(theta)) / (2.0 * theta * std::sin(theta));
+    }
 
-    v = A.colPivHouseholderQr().solve(p);
+    // Analytical Inverse Left Jacobian of SO(3): J^{-1} = I - 0.5 * W + alpha * W^2
+    Eigen::Matrix3d J_inv = Eigen::Matrix3d::Identity() - 0.5 * W + alpha * (W * W);
 
-    // Scale results by theta to return exponential coordinates
-    v = v * theta;
-    w = w * theta;
+    // Exponential coordinates of translation are found directly via matrix multiplication
+    v = J_inv * p;
   }
 
   Vector6d xi;
