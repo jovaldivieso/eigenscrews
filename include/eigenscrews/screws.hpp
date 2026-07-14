@@ -43,7 +43,6 @@
 #ifndef SCREWS_HPP
 #define SCREWS_HPP
 
-#include <Eigen/Dense>
 #include <Eigen/Geometry>
 
 namespace eigenscrews
